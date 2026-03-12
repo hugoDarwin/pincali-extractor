@@ -1,0 +1,38 @@
+name: Actualizador Pincali
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Diario a las 8 AM UTC
+  workflow_dispatch: # Botón manual
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Cachear Playwright
+        uses: actions/cache@v3
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      - name: Instalar Playwright
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Dependencias Playwright (si hubo caché)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Correr Bot
+        env:
+          APPS_SCRIPT_WEBHOOK: ${{ secrets.APPS_SCRIPT_WEBHOOK }}
+        run: node index.js
