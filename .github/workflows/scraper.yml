@@ -10,19 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # Eliminamos la línea de cache: 'npm' porque no tenemos package-lock.json
 
-      - run: npm ci
+      - name: Instalar dependencias
+        run: npm install # Usamos 'install' normal en lugar del estricto 'ci'
 
       - name: Cachear Playwright
         uses: actions/cache@v3
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          # Cambiamos el hash para que lea el package.json
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package.json') }}
 
       - name: Instalar Playwright
         if: steps.playwright-cache.outputs.cache-hit != 'true'
