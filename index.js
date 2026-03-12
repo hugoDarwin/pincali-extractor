@@ -31,13 +31,31 @@ async function run() {
         let resultados = [];
 
         for (let i = 0; i < propertyUrls.length; i++) {
-            console.log(`[${i + 1}/${propertyUrls.length}] Leyendo...`);
+            console.log(`[${i + 1}/${propertyUrls.length}] Leyendo: ${propertyUrls[i]}`);
             await page.goto(propertyUrls[i], { waitUntil: 'domcontentloaded' });
+            
+            // Verificación del WAF
+            const pageTitle = await page.title();
+            if (pageTitle.includes('Human Verification') || pageTitle.includes('Challenge')) {
+                console.log(`🔴 AWS WAF bloqueó a GitHub en la propiedad ${i+1}.`);
+                continue; // Saltamos a la siguiente para no mandar N/A
+            }
+
+            // Esperar explícitamente a que aparezca el contenedor del precio (máximo 10 segundos)
+            try {
+                await page.waitForSelector('.listing__price', { timeout: 10000 });
+            } catch (e) {
+                console.log(`⚠️ No cargó el precio a tiempo en ${propertyUrls[i]}. Posible bloqueo de WAF invisible.`);
+            }
             
             const data = await page.evaluate(() => {
                 let id = document.querySelector('.listing-id span')?.innerText.replace('ID:', '').trim() || 'N/A';
                 let titulo = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || 'N/A';
+                
+                // MEJORA EN LA EXTRACCIÓN DEL PRECIO
                 let precio = document.querySelector('.listing__price .price')?.innerText || 'N/A';
+                precio = precio.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(); // Limpieza agresiva de saltos de línea en el precio
+                
                 let ubicacion = document.querySelector('h2.location')?.innerText || 'N/A';
                 let descripcion = document.querySelector('.listing__description .text-description')?.innerText || 
                                   document.querySelector('#description-modal .modal-body')?.innerText || '';
@@ -46,7 +64,8 @@ async function run() {
                                     .map(el => el.innerText.trim()).join(' | ');
 
                 let imagenes = Array.from(document.querySelectorAll('.swiper-zoom-container img'))
-                                  .map(el => (el.getAttribute('src') || el.getAttribute('data-src')).split('?')[0]);
+                                  .map(el => (el.getAttribute('src') || el.getAttribute('data-src'))?.split('?')[0]).filter(Boolean);
+                
                 if (imagenes.length === 0) {
                     let mainImg = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
                     if (mainImg) imagenes.push(mainImg.split('?')[0]);
@@ -55,7 +74,12 @@ async function run() {
                 return { ID: id, Titulo: titulo, Precio: precio, Ubicacion: ubicacion, Caracteristicas: caracteristicas, Descripcion: descripcion, Fecha_Publicacion: document.querySelector('.publication-date span')?.getAttribute('data-publication-date') || 'N/A', Imagenes: imagenes };
             });
 
-            // Ensamblar objeto final (limpio y con columnas dinámicas para imágenes)
+            // Validar que realmente extrajo algo para no enviar N/A
+            if (data.Titulo === 'N/A' && data.Precio === 'N/A') {
+                 console.log("⏭️ Saltando propiedad vacía (Posible bloqueo WAF).");
+                 continue;
+            }
+
             let item = {
                 ID: data.ID,
                 Titulo: cleanText(data.Titulo),
@@ -68,7 +92,6 @@ async function run() {
                 URL_Propiedad: propertyUrls[i]
             };
 
-            // Magia: Convertimos el array de imágenes en claves individuales (Imagen_1, Imagen_2...)
             data.Imagenes.forEach((imgUrl, idx) => {
                 item[`Imagen_${idx + 1}`] = imgUrl;
             });
